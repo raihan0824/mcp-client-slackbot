@@ -29,8 +29,7 @@ class Configuration:
         self.slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
         self.slack_app_token = os.getenv("SLACK_APP_TOKEN")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.llm_model = os.getenv("LLM_MODEL", "gpt-4-turbo")
 
     @staticmethod
@@ -57,30 +56,17 @@ class Configuration:
 
     @property
     def llm_api_key(self) -> str:
-        """Get the appropriate LLM API key based on the model.
+        """Get the OpenAI API key.
 
         Returns:
             The API key as a string.
 
         Raises:
-            ValueError: If no API key is found for the selected model.
+            ValueError: If no OpenAI API key is found.
         """
-        if "gpt" in self.llm_model.lower() and self.openai_api_key:
-            return self.openai_api_key
-        elif "llama" in self.llm_model.lower() and self.groq_api_key:
-            return self.groq_api_key
-        elif "claude" in self.llm_model.lower() and self.anthropic_api_key:
-            return self.anthropic_api_key
-
-        # Fallback to any available key
-        if self.openai_api_key:
-            return self.openai_api_key
-        elif self.groq_api_key:
-            return self.groq_api_key
-        elif self.anthropic_api_key:
-            return self.anthropic_api_key
-
-        raise ValueError("No API key found for any LLM provider")
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment variables")
+        return self.openai_api_key
 
 
 class Server:
@@ -237,41 +223,32 @@ Arguments:
 
 
 class LLMClient:
-    """Client for communicating with LLM APIs."""
+    """Client for communicating with OpenAI API."""
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, base_url: str = "https://api.openai.com/v1") -> None:
         """Initialize the LLM client.
 
         Args:
-            api_key: API key for the LLM provider
+            api_key: OpenAI API key
             model: Model identifier to use
+            base_url: Base URL for the OpenAI API
         """
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url.rstrip("/")  # Remove trailing slash if present
         self.timeout = 30.0  # 30 second timeout
         self.max_retries = 2
 
     async def get_response(self, messages: List[Dict[str, str]]) -> str:
-        """Get a response from the LLM.
+        """Get a response from the OpenAI API.
 
         Args:
             messages: List of conversation messages
 
         Returns:
-            Text response from the LLM
+            Text response from the OpenAI API
         """
-        if self.model.startswith("gpt-") or self.model.startswith("ft:gpt-"):
-            return await self._get_openai_response(messages)
-        elif self.model.startswith("llama-"):
-            return await self._get_groq_response(messages)
-        elif self.model.startswith("claude-"):
-            return await self._get_anthropic_response(messages)
-        else:
-            raise ValueError(f"Unsupported model: {self.model}")
-
-    async def _get_openai_response(self, messages: List[Dict[str, str]]) -> str:
-        """Get a response from the OpenAI API."""
-        url = "https://api.openai.com/v1/chat/completions"
+        url = f"{self.base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -292,94 +269,6 @@ class LLMClient:
                     if response.status_code == 200:
                         response_data = response.json()
                         return response_data["choices"][0]["message"]["content"]
-                    else:
-                        if attempt == self.max_retries:
-                            return (
-                                f"Error from API: {response.status_code} - "
-                                f"{response.text}"
-                            )
-                        await asyncio.sleep(2**attempt)  # Exponential backoff
-            except Exception as e:
-                if attempt == self.max_retries:
-                    return f"Failed to get response: {str(e)}"
-                await asyncio.sleep(2**attempt)  # Exponential backoff
-
-    async def _get_groq_response(self, messages: List[Dict[str, str]]) -> str:
-        """Get a response from the Groq API."""
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 1500,
-        }
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(url, json=payload, headers=headers)
-
-                    if response.status_code == 200:
-                        response_data = response.json()
-                        return response_data["choices"][0]["message"]["content"]
-                    else:
-                        if attempt == self.max_retries:
-                            return (
-                                f"Error from API: {response.status_code} - "
-                                f"{response.text}"
-                            )
-                        await asyncio.sleep(2**attempt)  # Exponential backoff
-            except Exception as e:
-                if attempt == self.max_retries:
-                    return f"Failed to get response: {str(e)}"
-                await asyncio.sleep(2**attempt)  # Exponential backoff
-
-    async def _get_anthropic_response(self, messages: List[Dict[str, str]]) -> str:
-        """Get a response from the Anthropic API."""
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "anthropic-version": "2023-06-01",
-            "x-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
-
-        # Convert messages to Anthropic format
-        system_message = None
-        anthropic_messages = []
-
-        for msg in messages:
-            if msg["role"] == "system":
-                system_message = msg["content"]
-            elif msg["role"] == "user":
-                anthropic_messages.append({"role": "user", "content": msg["content"]})
-            elif msg["role"] == "assistant":
-                anthropic_messages.append(
-                    {"role": "assistant", "content": msg["content"]}
-                )
-
-        payload = {
-            "model": self.model,
-            "messages": anthropic_messages,
-            "temperature": 0.7,
-            "max_tokens": 1500,
-        }
-
-        if system_message:
-            payload["system"] = system_message
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(url, json=payload, headers=headers)
-
-                    if response.status_code == 200:
-                        response_data = response.json()
-                        return response_data["content"][0]["text"]
                     else:
                         if attempt == self.max_retries:
                             return (
@@ -717,7 +606,7 @@ async def main() -> None:
         for name, srv_config in server_config["mcpServers"].items()
     ]
 
-    llm_client = LLMClient(config.llm_api_key, config.llm_model)
+    llm_client = LLMClient(config.llm_api_key, config.llm_model, config.openai_base_url)
 
     slack_bot = SlackMCPBot(
         config.slack_bot_token, config.slack_app_token, servers, llm_client
