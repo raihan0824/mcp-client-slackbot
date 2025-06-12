@@ -1,0 +1,14 @@
+.git/
+.gitignore
+README.md
+LICENSE
+kubernetes/
+.pre-commit-config.yaml
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+.env
+.venv/
+venv/ 

@@ -600,7 +600,26 @@ async def main() -> None:
             "SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set in environment variables"
         )
 
-    server_config = config.load_config("servers_config.json")
+    # Try to load config from mounted ConfigMap path first, fallback to local path
+    config_paths = [
+        "/app/mcp_simple_slackbot/servers_config.json",  # ConfigMap mounted path
+        "servers_config.json",  # Local fallback path
+        "mcp_simple_slackbot/servers_config.json"  # Relative path fallback
+    ]
+    
+    server_config = None
+    for config_path in config_paths:
+        try:
+            server_config = config.load_config(config_path)
+            logging.info(f"Loaded server configuration from: {config_path}")
+            break
+        except FileNotFoundError:
+            logging.debug(f"Config file not found at: {config_path}")
+            continue
+    
+    if server_config is None:
+        raise FileNotFoundError("Could not find servers_config.json in any of the expected locations")
+
     servers = [
         Server(name, srv_config)
         for name, srv_config in server_config["mcpServers"].items()
