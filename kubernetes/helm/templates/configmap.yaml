@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-slackbot.fullname" . }}-servers-config
+  labels:
+    {{- include "mcp-slackbot.labels" . | nindent 4 }}
+data:
+  servers_config.json: |
+    {{- .Values.serversConfig | toJson | nindent 4 }} 

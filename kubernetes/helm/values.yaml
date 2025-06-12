@@ -1,0 +1,66 @@
+replicaCount: 1
+
+image:
+  repository: dekaregistry.cloudeka.id/cloudeka-system/mcp-slackbot
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Environment variables
+env:
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: OPENAI_BASE_URL
+    value: "https://dekallm.cloudeka.ai/v1"
+  - name: LLM_MODEL
+    value: "qwen/qwen25-72b-instruct"
+
+# Secrets for sensitive datagit show COMMIT_HASH -- kubernetes/helm/values.yaml
+secrets:
+  slackBotToken: ""       # SLACK_BOT_TOKEN (e.g., xoxb-your-bot-token-here)
+  slackAppToken: ""       # SLACK_APP_TOKEN (e.g., xapp-your-app-token-here)
+  openaiApiKey: ""        # OPENAI_API_KEY
+
+# MCP Servers Configuration
+serversConfig:
+  mcpServers:
+    fetch:
+      command: uvx
+      args:
+        - mcp-server-fetch
+      description: Fetch web content from a URL 
